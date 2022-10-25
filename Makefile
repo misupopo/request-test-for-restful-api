@@ -18,6 +18,7 @@ create-require-files:
 	touch cookies/cookies.txt
 	touch headers/headers.txt
 
+# $ はエスケープしないといけない
 test: create-require-files
 	echo "xCSRFToken: $(xCSRFToken)"
 	echo "client: $(client)"
