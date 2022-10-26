@@ -61,6 +61,7 @@ const fs = require('fs');
     password,
   }
 
+  // cookie を使用するように設定
   axios.defaults.withCredentials = true
 
   const xsrfToken = '';
