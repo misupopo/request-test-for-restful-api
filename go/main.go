@@ -3,39 +3,36 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
+	"request-test-for-restful-api/env"
 	"strconv"
 	"strings"
 )
 
-type ENV struct {
-	SAP struct {
-		Host     string `json:"host" form:"host"`
-		PORT     string `json:"port" form:"port"`
-		Username string `json:"username" form:"username"`
-		Password string `json:"password" form:"password"`
-		Bank     struct {
-			Country string `json:"country" form:"country"`
-			BankId  string `json:"bankId" form:"bankId"`
-		}
-		Client     int    `json:"client" form:"client"`
-		XCSRFToken string `json:"xCSRFToken" form:"xCSRFToken"`
-	}
+type OAuthInfo struct {
+	AccessToken string `json:"access_token"`
+	InstanceUrl string `json:"instance_url"`
 }
 
 func main() {
-	// intellij だと GOROOT の path がプロジェクトの top になる
-	// なので、GOROOT からの相対パスで import すると、
-	env, err := ioutil.ReadFile("./env.json")
-	//fmt.Printf("env: %v \n", env)
+	environment, err := env.NewEnv()
 
-	var environment ENV
-	err = json.Unmarshal(env, &environment)
+	if err != nil {
+		fmt.Printf("New environment error: %v \n", err)
+	}
 
 	fmt.Printf("environment: %v \n", environment.SAP.Host)
 
+	// sap へのリクエストテスト
+	//requestSap(environment)
+	// salesforce へのリクエストテスト
+	requestSalesforce(environment)
+}
+
+func requestSap(environment *env.ENV) {
 	method := "GET"
 	service := "sap/opu/odata4/sap/api_bank/srvd_a2x/sap/api_bank_2/0001/Bank"
 
@@ -87,7 +84,12 @@ func main() {
 		Jar: j,
 	}
 
+	fmt.Printf("start request \n")
+
 	response, err := client.Do(req)
+
+	fmt.Printf("complete request \n")
+
 	if err != nil {
 		fmt.Printf("request returns error: %v", err)
 	}
@@ -95,4 +97,42 @@ func main() {
 	fmt.Printf("response: %v \n", response)
 	fmt.Printf("statusCode: %v \n", response.StatusCode)
 	fmt.Printf("Body: %v \n", response.Body)
+}
+
+func requestSalesforce(environment *env.ENV) {
+	form := url.Values{}
+	form.Add("grant_type", environment.SALESFORCE.GrantType)
+	form.Add("client_id", environment.SALESFORCE.ClientId)
+	form.Add("client_secret", environment.SALESFORCE.ClientSecret)
+	form.Add("username", environment.SALESFORCE.Username)
+	form.Add("password", environment.SALESFORCE.Password)
+
+	resp, err := http.PostForm(environment.SALESFORCE.LoginUrl, form)
+	if err != nil {
+		fmt.Printf("failed to fetch response: %v", err)
+	}
+	defer safeClose(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("HTTP %s: failed to read response body: %v", resp.Status, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("HTTP %s: %s", resp.Status, body)
+	}
+
+	var oauthResp OAuthInfo
+	if err := json.Unmarshal(body, &oauthResp); err != nil {
+		fmt.Printf("failed to unmarshal json to response struct: %v", err)
+	}
+
+	fmt.Printf("oauthResp AccessToken: %v \n", oauthResp.AccessToken)
+	fmt.Printf("oauthResp InstanceUrl: %v \n", oauthResp.InstanceUrl)
+}
+
+func safeClose(closer io.Closer) {
+	if closer != nil {
+		if err := closer.Close(); err != nil {
+			fmt.Printf("failed to close: %v", err)
+		}
+	}
 }
