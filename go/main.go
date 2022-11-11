@@ -8,14 +8,10 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"request-test-for-restful-api/env"
+	"request-test-for-restful-api/salesforce"
 	"strconv"
 	"strings"
 )
-
-type OAuthInfo struct {
-	AccessToken string `json:"access_token"`
-	InstanceUrl string `json:"instance_url"`
-}
 
 func main() {
 	environment, err := env.NewEnv()
@@ -28,8 +24,10 @@ func main() {
 
 	// sap へのリクエストテスト
 	//requestSap(environment)
+
 	// salesforce へのリクエストテスト
-	requestSalesforce(environment)
+	rsf := requestSalesforce(environment)
+	requestSalesforceApi(rsf)
 }
 
 func requestSap(environment *env.ENV) {
@@ -99,7 +97,7 @@ func requestSap(environment *env.ENV) {
 	fmt.Printf("Body: %v \n", response.Body)
 }
 
-func requestSalesforce(environment *env.ENV) {
+func requestSalesforce(environment *env.ENV) *salesforce.OAuthInfo {
 	form := url.Values{}
 	form.Add("grant_type", environment.SALESFORCE.GrantType)
 	form.Add("client_id", environment.SALESFORCE.ClientId)
@@ -120,13 +118,17 @@ func requestSalesforce(environment *env.ENV) {
 		fmt.Printf("HTTP %s: %s", resp.Status, body)
 	}
 
-	var oauthResp OAuthInfo
+	fmt.Printf("body: %v \n", string(body))
+
+	var oauthResp salesforce.OAuthInfo
 	if err := json.Unmarshal(body, &oauthResp); err != nil {
 		fmt.Printf("failed to unmarshal json to response struct: %v", err)
 	}
 
 	fmt.Printf("oauthResp AccessToken: %v \n", oauthResp.AccessToken)
 	fmt.Printf("oauthResp InstanceUrl: %v \n", oauthResp.InstanceUrl)
+
+	return &oauthResp
 }
 
 func safeClose(closer io.Closer) {
@@ -135,4 +137,45 @@ func safeClose(closer io.Closer) {
 			fmt.Printf("failed to close: %v", err)
 		}
 	}
+}
+
+func requestSalesforceApi(salesforceInfo *salesforce.OAuthInfo) {
+	method := "GET"
+
+	// https://latona--test.sandbox.my.salesforce.com/services/apexrest/ContractRelatedList/doGetContractRelatedList
+	requestUrl := fmt.Sprintf("%v/services/apexrest/%v/%v", salesforceInfo.InstanceUrl, "ContractRelatedList", "doGetContractRelatedList")
+
+	body, err := json.Marshal(map[string]string{})
+	if err != nil {
+		fmt.Printf("API request error: %v \n", err)
+	}
+
+	fmt.Printf("requestUrl: %v \n", requestUrl)
+	fmt.Printf("strings.NewReader(string(body)): %v \n", strings.NewReader(string(body)))
+
+	req, err := http.NewRequest(method, requestUrl, strings.NewReader(string(body)))
+	if err != nil {
+		fmt.Printf("HTTP NewRequest error: %v \n", err)
+	}
+
+	requiredHeaders := http.Header{}
+	requiredHeaders.Add("Content-Type", "application/json")
+
+	req.Header = requiredHeaders
+
+	req.Header.Add("Authorization", "Bearer "+salesforceInfo.AccessToken)
+
+	fmt.Printf("salesforceInfo.AccessToken: %v \n", salesforceInfo.AccessToken)
+
+	client := &http.Client{}
+
+	response, err := client.Do(req)
+
+	fmt.Printf("response: %v \n", response)
+	fmt.Printf("statusCode: %v \n", response.StatusCode)
+
+	responseBody, _ := io.ReadAll(response.Body)
+
+	// responseBody は []byte なので string に変換する
+	fmt.Printf("body: %v \n", string(responseBody))
 }
